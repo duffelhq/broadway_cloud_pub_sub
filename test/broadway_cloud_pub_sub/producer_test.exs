@@ -12,6 +12,13 @@ defmodule BroadwayCloudPubSub.ProducerTest do
       Agent.update(server, fn queue -> queue ++ messages end)
     end
 
+    def push_messages(server, messages, callback) do
+      Agent.update(server, fn queue ->
+        callback.()
+        queue ++ messages
+      end)
+    end
+
     def take_messages(server, amount) do
       Agent.get_and_update(server, &Enum.split(&1, amount))
     end
@@ -197,6 +204,26 @@ defmodule BroadwayCloudPubSub.ProducerTest do
     Task.await(task)
 
     refute_receive {:messages_received, _}, 10
+
+    stop_broadway(name)
+  end
+
+  test "stop current connection after start draining" do
+    {:ok, message_server} = MessageServer.start_link()
+    name = start_broadway(message_server)
+
+    [producer] = Broadway.producer_names(name)
+
+    assert_receive {:messages_received, 0}
+
+    MessageServer.push_messages(message_server, [13], fn ->
+      Process.sleep(4000)
+    end)
+
+    task = Task.async(fn -> Broadway.Topology.ProducerStage.drain(producer) end)
+
+    # refute_receive {:messages_received, _}
+    refute_receive {:message_handled, 13}
 
     stop_broadway(name)
   end
